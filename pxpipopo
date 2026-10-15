@@ -1,0 +1,108 @@
+-- LocalScript in StarterPlayerScripts (your own game)
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "DungeonDoorGui"
+gui.ResetOnSpawn = false
+gui.Parent = player:WaitForChild("PlayerGui")
+
+local button = Instance.new("TextButton")
+button.AnchorPoint = Vector2.new(0, 1)
+button.Position = UDim2.new(0, 15, 1, -75)   -- bottom left, above the meteorite button
+button.Size = UDim2.fromOffset(220, 50)
+button.TextSize = 18
+button.Font = Enum.Font.GothamBold
+button.TextColor3 = Color3.new(1, 1, 1)
+button.Parent = gui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 8)
+corner.Parent = button
+
+local ON_COLOR = Color3.fromRGB(60, 170, 80)
+local OFF_COLOR = Color3.fromRGB(200, 60, 50)
+
+local enabled = false
+local lastFire = {}
+
+local function refresh()
+    button.Text = "Dungeon Door: " .. (enabled and "ON" or "OFF")
+    button.BackgroundColor3 = enabled and ON_COLOR or OFF_COLOR
+end
+refresh()
+
+-- Returns every PartDoor that currently exists, under any child name
+local function getDoors()
+    local map = workspace:FindFirstChild("Map")
+    local bossFolder = map and map:FindFirstChild("DungeonDoorBoss")
+    local doors = {}
+    if not bossFolder then return doors end
+
+    for _, child in bossFolder:GetChildren() do
+        local door = child:FindFirstChild("PartDoor")
+        if door and door:IsA("BasePart") then
+            table.insert(doors, door)
+        end
+    end
+    return doors
+end
+
+local function getNearestDoor(fromPosition)
+    local best, bestDist = nil, math.huge
+    for _, door in getDoors() do
+        local d = (door.Position - fromPosition).Magnitude
+        if d < bestDist then
+            best, bestDist = door, d
+        end
+    end
+    return best
+end
+
+-- Button: turn ON and teleport to the nearest door, or turn OFF
+button.MouseButton1Click:Connect(function()
+    local char = player.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    if not enabled then
+        local door = getNearestDoor(root.Position)
+        if not door then return end                 -- no door spawned, stay OFF
+        char:PivotTo(door.CFrame + Vector3.new(0, 3, 4))
+        enabled = true
+    else
+        enabled = false
+    end
+    refresh()
+end)
+
+-- Auto-fire the door's ProximityPrompt while ON
+task.spawn(function()
+    while true do
+        task.wait(0.2)
+        if not enabled then continue end
+
+        local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+        if not root then continue end
+
+        for _, door in getDoors() do
+            local prompt = door:FindFirstChildWhichIsA("ProximityPrompt")
+            if prompt and prompt.Enabled
+                and (root.Position - door.Position).Magnitude <= prompt.MaxActivationDistance
+                and os.clock() - (lastFire[prompt] or 0) > 3 then
+
+                lastFire[prompt] = os.clock()
+                task.spawn(function()
+                    prompt:InputHoldBegin()
+                    task.wait(prompt.HoldDuration + 0.05)
+                    prompt:InputHoldEnd()
+                end)
+            end
+        end
+    end
+end)
+
+player.CharacterAdded:Connect(function()
+    enabled = false
+    refresh()
+end)
