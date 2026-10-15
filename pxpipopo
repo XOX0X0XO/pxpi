@@ -11,6 +11,7 @@ local DUNGEON_DESTINATION = CFrame.new(
 )
 local CHECK_INTERVAL = 3
 local DUNGEON_INSIDE_RANGE = 150
+local DOOR_OFFSET = Vector3.new(0, 3, 4)
 local METEORITE_NEAR_RANGE = 80
 local METEORITE_OFFSET = Vector3.new(0, 5, 5)
 local METEORITE_INDEXES = { 15, 16 }
@@ -20,8 +21,9 @@ local ON_COLOR = Color3.fromRGB(60, 170, 80)
 local OFF_COLOR = Color3.fromRGB(200, 60, 50)
 
 local state = { meteorite = false, dungeon = false }
+local busy = false
 
--- Find targets
+-- Meteorite
 local function pivotOf(inst)
 	if inst and inst:IsA("PVInstance") then
 		return inst:GetPivot()
@@ -54,14 +56,42 @@ local function getMeteoriteCFrame(fromPosition)
 	return best
 end
 
-local function doorExists()
+-- Dungeon: nearest PartDoor under any child of DungeonDoorBoss
+local function getNearestDoor(fromPosition)
 	local map = workspace:FindFirstChild("Map")
 	local bossFolder = map and map:FindFirstChild("DungeonDoorBoss")
-	if not bossFolder then return false end
+	if not bossFolder then return nil end
+
+	local best, bestDist = nil, math.huge
 	for _, child in bossFolder:GetChildren() do
-		if child:FindFirstChild("PartDoor") then return true end
+		local door = child:FindFirstChild("PartDoor")
+		if door and door:IsA("BasePart") then
+			local d = (door.Position - fromPosition).Magnitude
+			if d < bestDist then best, bestDist = door, d end
+		end
 	end
-	return false
+	return best
+end
+
+local function runDungeon(char, root)
+	local door = getNearestDoor(root.Position)
+	if not door then return end
+
+	-- 1) teleport to the door
+	char:PivotTo(door.CFrame + DOOR_OFFSET)
+	task.wait(0.5)
+
+	-- 2) fire the proximity prompt
+	local prompt = door:FindFirstChildWhichIsA("ProximityPrompt", true)
+	if prompt and prompt.Enabled then
+		prompt:InputHoldBegin()
+		task.wait(prompt.HoldDuration + 0.1)
+		prompt:InputHoldEnd()
+	end
+	task.wait(0.5)
+
+	-- 3) teleport to your CFrame
+	char:PivotTo(DUNGEON_DESTINATION)
 end
 
 -- GUI
@@ -154,6 +184,7 @@ end)
 task.spawn(function()
 	while true do
 		task.wait(CHECK_INTERVAL)
+		if busy then continue end
 
 		local char = player.Character
 		local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -171,9 +202,12 @@ task.spawn(function()
 			end
 		end
 
-		if state.dungeon and not handled and doorExists() then
-			if (root.Position - DUNGEON_DESTINATION.Position).Magnitude > DUNGEON_INSIDE_RANGE then
-				char:PivotTo(DUNGEON_DESTINATION)
+		if state.dungeon and not handled then
+			local inside = (root.Position - DUNGEON_DESTINATION.Position).Magnitude <= DUNGEON_INSIDE_RANGE
+			if not inside then
+				busy = true
+				runDungeon(char, root)
+				busy = false
 			end
 		end
 	end
