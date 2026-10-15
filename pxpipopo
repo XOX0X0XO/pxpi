@@ -1,4 +1,195 @@
--- Auto loop (dungeon has priority while a door exists)
+-- LocalScript in StarterPlayerScripts (everything in one)
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+
+-- Settings
+local DUNGEON_DESTINATION = CFrame.new(
+	2465.39526, 2461.83154, -668.35083,
+	0.645107985, 0.241587579, -0.724893808,
+	-0.145664304, 0.970185637, 0.193705022,
+	0.75007838, -0.0193695221, 0.661065221
+)
+local CHECK_INTERVAL = 3
+local DUNGEON_INSIDE_RANGE = 150
+local DOOR_OFFSET = Vector3.new(0, 3, 4)
+local METEORITE_NEAR_RANGE = 80
+local METEORITE_OFFSET = Vector3.new(0, 5, 5)
+local METEORITE_INDEXES = { 15, 16 }
+local METEORITE_NAMES = { "Meteorite" }
+
+local ON_COLOR = Color3.fromRGB(60, 170, 80)
+local OFF_COLOR = Color3.fromRGB(200, 60, 50)
+
+local state = { meteorite = false, dungeon = false }
+local busy = false
+
+-- Meteorite
+local function pivotOf(inst)
+	if inst and inst:IsA("PVInstance") then
+		return inst:GetPivot()
+	end
+	return nil
+end
+
+local function getMeteoriteCFrame(fromPosition)
+	local mod = workspace:FindFirstChild("Mod")
+	local eventFolder = mod and mod:FindFirstChild("MeteoriteEvent")
+	if not eventFolder then return nil end
+
+	local children = eventFolder:GetChildren()
+	local found = {}
+
+	for _, name in METEORITE_NAMES do
+		local cf = pivotOf(eventFolder:FindFirstChild(name))
+		if cf then table.insert(found, cf) end
+	end
+	for _, index in METEORITE_INDEXES do
+		local cf = pivotOf(children[index])
+		if cf then table.insert(found, cf) end
+	end
+
+	local best, bestDist = nil, math.huge
+	for _, cf in found do
+		local d = (cf.Position - fromPosition).Magnitude
+		if d < bestDist then best, bestDist = cf, d end
+	end
+	return best
+end
+
+-- Island check: while this exists, Auto Meteorite is paused
+local function islandActive()
+	local map = workspace:FindFirstChild("Map")
+	local bossMap = map and map:FindFirstChild("DungeonBoss_MAP")
+	return bossMap ~= nil and bossMap:FindFirstChild("Island_Start") ~= nil
+end
+
+-- Dungeon: nearest PartDoor under any child of DungeonDoorBoss
+local function getNearestDoor(fromPosition)
+	local map = workspace:FindFirstChild("Map")
+	local bossFolder = map and map:FindFirstChild("DungeonDoorBoss")
+	if not bossFolder then return nil end
+
+	local best, bestDist = nil, math.huge
+	for _, child in bossFolder:GetChildren() do
+		local door = child:FindFirstChild("PartDoor")
+		if door and door:IsA("BasePart") then
+			local d = (door.Position - fromPosition).Magnitude
+			if d < bestDist then best, bestDist = door, d end
+		end
+	end
+	return best
+end
+
+local function runDungeon(char, root)
+	local door = getNearestDoor(root.Position)
+	if not door then return end
+
+	-- 1) teleport to the door
+	char:PivotTo(door.CFrame + DOOR_OFFSET)
+	task.wait(0.5)
+
+	-- 2) fire the proximity prompt
+	local prompt = door:FindFirstChildWhichIsA("ProximityPrompt", true)
+	if prompt and prompt.Enabled then
+		prompt:InputHoldBegin()
+		task.wait(prompt.HoldDuration + 0.1)
+		prompt:InputHoldEnd()
+	end
+	task.wait(0.5)
+
+	-- 3) teleport to your CFrame
+	char:PivotTo(DUNGEON_DESTINATION)
+end
+
+-- GUI
+local gui = Instance.new("ScreenGui")
+gui.Name = "AutoMenuGui"
+gui.ResetOnSpawn = false
+gui.Parent = player:WaitForChild("PlayerGui")
+
+local openButton = Instance.new("TextButton")
+openButton.AnchorPoint = Vector2.new(0, 1)
+openButton.Position = UDim2.new(0, 15, 1, -15)
+openButton.Size = UDim2.fromOffset(160, 50)
+openButton.Text = "Auto Menu"
+openButton.TextSize = 18
+openButton.Font = Enum.Font.GothamBold
+openButton.TextColor3 = Color3.new(1, 1, 1)
+openButton.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+openButton.Parent = gui
+Instance.new("UICorner", openButton).CornerRadius = UDim.new(0, 8)
+
+local frame = Instance.new("Frame")
+frame.AnchorPoint = Vector2.new(0.5, 0.5)
+frame.Position = UDim2.fromScale(0.5, 0.5)
+frame.Size = UDim2.fromOffset(460, 320)
+frame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+frame.Visible = false
+frame.Parent = gui
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 14)
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 60)
+title.BackgroundTransparency = 1
+title.Text = "Auto Features"
+title.TextSize = 28
+title.Font = Enum.Font.GothamBold
+title.TextColor3 = Color3.new(1, 1, 1)
+title.Parent = frame
+
+local closeButton = Instance.new("TextButton")
+closeButton.AnchorPoint = Vector2.new(1, 0)
+closeButton.Position = UDim2.new(1, -12, 0, 12)
+closeButton.Size = UDim2.fromOffset(36, 36)
+closeButton.Text = "X"
+closeButton.TextSize = 18
+closeButton.Font = Enum.Font.GothamBold
+closeButton.TextColor3 = Color3.new(1, 1, 1)
+closeButton.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
+closeButton.Parent = frame
+Instance.new("UICorner", closeButton).CornerRadius = UDim.new(0, 8)
+
+local toggles = {}
+
+local function refresh(feature)
+	local t = toggles[feature]
+	local on = state[feature]
+	t.button.Text = t.label .. ": " .. (on and "ON" or "OFF")
+	t.button.BackgroundColor3 = on and ON_COLOR or OFF_COLOR
+end
+
+local function makeToggle(feature, label, yOffset)
+	local b = Instance.new("TextButton")
+	b.AnchorPoint = Vector2.new(0.5, 0)
+	b.Position = UDim2.new(0.5, 0, 0, yOffset)
+	b.Size = UDim2.new(0.85, 0, 0, 80)
+	b.TextSize = 24
+	b.Font = Enum.Font.GothamBold
+	b.TextColor3 = Color3.new(1, 1, 1)
+	b.Parent = frame
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 12)
+
+	toggles[feature] = { button = b, label = label }
+	b.MouseButton1Click:Connect(function()
+		state[feature] = not state[feature]
+		refresh(feature)
+	end)
+	refresh(feature)
+end
+
+makeToggle("meteorite", "Auto Meteorite", 80)
+makeToggle("dungeon", "Auto Dungeon", 180)
+
+openButton.MouseButton1Click:Connect(function()
+	frame.Visible = not frame.Visible
+end)
+closeButton.MouseButton1Click:Connect(function()
+	frame.Visible = false
+end)
+
+-- Auto loop
+-- Dungeon runs first when ON and a door exists.
+-- Meteorite is blocked while Map.DungeonBoss_MAP.Island_Start exists.
 task.spawn(function()
 	while true do
 		task.wait(CHECK_INTERVAL)
@@ -11,15 +202,13 @@ task.spawn(function()
 		local dungeonActive = state.dungeon and getNearestDoor(root.Position) ~= nil
 
 		if dungeonActive then
-			-- Dungeon first: if you're not in the room yet, run the full sequence
 			local inside = (root.Position - DUNGEON_DESTINATION.Position).Magnitude <= DUNGEON_INSIDE_RANGE
 			if not inside then
 				busy = true
 				runDungeon(char, root)
 				busy = false
 			end
-		elseif state.meteorite then
-			-- Meteorite only runs when the dungeon is off or no door exists
+		elseif state.meteorite and not islandActive() then
 			local target = getMeteoriteCFrame(root.Position)
 			if target and (root.Position - target.Position).Magnitude > METEORITE_NEAR_RANGE then
 				char:PivotTo(target + METEORITE_OFFSET)
