@@ -1,66 +1,180 @@
+-- LocalScript in StarterPlayerScripts (everything in one)
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local player = Players.LocalPlayer
 
-local remote = ReplicatedStorage:WaitForChild("AutoDungeon")
-
-local DESTINATION = CFrame.new(
-    2465.39526, 2461.83154, -668.35083,
-    0.645107985, 0.241587579, -0.724893808,
-    -0.145664304, 0.970185637, 0.193705022,
-    0.75007838, -0.0193695221, 0.661065221
+-- Settings
+local DUNGEON_DESTINATION = CFrame.new(
+	2465.39526, 2461.83154, -668.35083,
+	0.645107985, 0.241587579, -0.724893808,
+	-0.145664304, 0.970185637, 0.193705022,
+	0.75007838, -0.0193695221, 0.661065221
 )
+local CHECK_INTERVAL = 3
+local DUNGEON_INSIDE_RANGE = 150
+local METEORITE_NEAR_RANGE = 80
+local METEORITE_OFFSET = Vector3.new(0, 5, 5)
+local METEORITE_INDEXES = { 15, 16 }
+local METEORITE_NAMES = { "Meteorite" }
 
-local CHECK_INTERVAL = 3          -- seconds between auto attempts
-local ALREADY_INSIDE_RANGE = 150  -- studs from DESTINATION counted as "inside"
+local ON_COLOR = Color3.fromRGB(60, 170, 80)
+local OFF_COLOR = Color3.fromRGB(200, 60, 50)
 
-local bossFolder = workspace:WaitForChild("Map"):WaitForChild("DungeonDoorBoss")
-local enabled = {}   -- [player] = true/false
+local state = { meteorite = false, dungeon = false }
 
--- True if any door (normal village, cave, any name) currently exists
+-- Find targets
+local function pivotOf(inst)
+	if inst and inst:IsA("PVInstance") then
+		return inst:GetPivot()
+	end
+	return nil
+end
+
+local function getMeteoriteCFrame(fromPosition)
+	local mod = workspace:FindFirstChild("Mod")
+	local eventFolder = mod and mod:FindFirstChild("MeteoriteEvent")
+	if not eventFolder then return nil end
+
+	local children = eventFolder:GetChildren()
+	local found = {}
+
+	for _, name in METEORITE_NAMES do
+		local cf = pivotOf(eventFolder:FindFirstChild(name))
+		if cf then table.insert(found, cf) end
+	end
+	for _, index in METEORITE_INDEXES do
+		local cf = pivotOf(children[index])
+		if cf then table.insert(found, cf) end
+	end
+
+	local best, bestDist = nil, math.huge
+	for _, cf in found do
+		local d = (cf.Position - fromPosition).Magnitude
+		if d < bestDist then best, bestDist = cf, d end
+	end
+	return best
+end
+
 local function doorExists()
-    for _, child in bossFolder:GetChildren() do
-        if child:FindFirstChild("PartDoor") then return true end
-    end
-    return false
+	local map = workspace:FindFirstChild("Map")
+	local bossFolder = map and map:FindFirstChild("DungeonDoorBoss")
+	if not bossFolder then return false end
+	for _, child in bossFolder:GetChildren() do
+		if child:FindFirstChild("PartDoor") then return true end
+	end
+	return false
 end
 
-local function joinDungeon(player)
-    local char = player.Character
-    if char and doorExists() then
-        char:PivotTo(DESTINATION)
-    end
+-- GUI
+local gui = Instance.new("ScreenGui")
+gui.Name = "AutoMenuGui"
+gui.ResetOnSpawn = false
+gui.Parent = player:WaitForChild("PlayerGui")
+
+local openButton = Instance.new("TextButton")
+openButton.AnchorPoint = Vector2.new(0, 1)
+openButton.Position = UDim2.new(0, 15, 1, -15)
+openButton.Size = UDim2.fromOffset(160, 50)
+openButton.Text = "Auto Menu"
+openButton.TextSize = 18
+openButton.Font = Enum.Font.GothamBold
+openButton.TextColor3 = Color3.new(1, 1, 1)
+openButton.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+openButton.Parent = gui
+Instance.new("UICorner", openButton).CornerRadius = UDim.new(0, 8)
+
+local frame = Instance.new("Frame")
+frame.AnchorPoint = Vector2.new(0.5, 0.5)
+frame.Position = UDim2.fromScale(0.5, 0.5)
+frame.Size = UDim2.fromOffset(460, 320)
+frame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+frame.Visible = false
+frame.Parent = gui
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 14)
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 60)
+title.BackgroundTransparency = 1
+title.Text = "Auto Features"
+title.TextSize = 28
+title.Font = Enum.Font.GothamBold
+title.TextColor3 = Color3.new(1, 1, 1)
+title.Parent = frame
+
+local closeButton = Instance.new("TextButton")
+closeButton.AnchorPoint = Vector2.new(1, 0)
+closeButton.Position = UDim2.new(1, -12, 0, 12)
+closeButton.Size = UDim2.fromOffset(36, 36)
+closeButton.Text = "X"
+closeButton.TextSize = 18
+closeButton.Font = Enum.Font.GothamBold
+closeButton.TextColor3 = Color3.new(1, 1, 1)
+closeButton.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
+closeButton.Parent = frame
+Instance.new("UICorner", closeButton).CornerRadius = UDim.new(0, 8)
+
+local toggles = {}
+
+local function refresh(feature)
+	local t = toggles[feature]
+	local on = state[feature]
+	t.button.Text = t.label .. ": " .. (on and "ON" or "OFF")
+	t.button.BackgroundColor3 = on and ON_COLOR or OFF_COLOR
 end
 
--- Manual use: players can still trigger the door prompt themselves
-local function hook(prompt)
-    if prompt:IsA("ProximityPrompt") and prompt.Parent and prompt.Parent.Name == "PartDoor" then
-        prompt.Triggered:Connect(joinDungeon)
-    end
-end
-for _, d in bossFolder:GetDescendants() do hook(d) end
-bossFolder.DescendantAdded:Connect(function(d) task.defer(hook, d) end)
+local function makeToggle(feature, label, yOffset)
+	local b = Instance.new("TextButton")
+	b.AnchorPoint = Vector2.new(0.5, 0)
+	b.Position = UDim2.new(0.5, 0, 0, yOffset)
+	b.Size = UDim2.new(0.85, 0, 0, 80)
+	b.TextSize = 24
+	b.Font = Enum.Font.GothamBold
+	b.TextColor3 = Color3.new(1, 1, 1)
+	b.Parent = frame
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 12)
 
--- Button toggles auto-dungeon
-remote.OnServerEvent:Connect(function(player)
-    enabled[player] = not enabled[player]
-    remote:FireClient(player, enabled[player])
+	toggles[feature] = { button = b, label = label }
+	b.MouseButton1Click:Connect(function()
+		state[feature] = not state[feature]
+		refresh(feature)
+	end)
+	refresh(feature)
+end
+
+makeToggle("meteorite", "Auto Meteorite", 80)
+makeToggle("dungeon", "Auto Dungeon", 180)
+
+openButton.MouseButton1Click:Connect(function()
+	frame.Visible = not frame.Visible
+end)
+closeButton.MouseButton1Click:Connect(function()
+	frame.Visible = false
 end)
 
--- Auto loop
+-- Auto loop (meteorite has priority while one exists)
 task.spawn(function()
-    while true do
-        task.wait(CHECK_INTERVAL)
-        for player, on in enabled do
-            if on then
-                local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-                if root and (root.Position - DESTINATION.Position).Magnitude > ALREADY_INSIDE_RANGE then
-                    joinDungeon(player)
-                end
-            end
-        end
-    end
-end)
+	while true do
+		task.wait(CHECK_INTERVAL)
 
-Players.PlayerRemoving:Connect(function(p)
-    enabled[p] = nil
+		local char = player.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not root then continue end
+
+		local handled = false
+
+		if state.meteorite then
+			local target = getMeteoriteCFrame(root.Position)
+			if target then
+				handled = true
+				if (root.Position - target.Position).Magnitude > METEORITE_NEAR_RANGE then
+					char:PivotTo(target + METEORITE_OFFSET)
+				end
+			end
+		end
+
+		if state.dungeon and not handled and doorExists() then
+			if (root.Position - DUNGEON_DESTINATION.Position).Magnitude > DUNGEON_INSIDE_RANGE then
+				char:PivotTo(DUNGEON_DESTINATION)
+			end
+		end
+	end
 end)
