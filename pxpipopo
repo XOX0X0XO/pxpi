@@ -321,5 +321,225 @@ task.spawn(function()
                 activateSkill("C")
             end
         end
+
+
+
+
+local Players = game:GetService("Players")
+
+local player = Players.LocalPlayer
+local autoEquip = false
+local selectedToolName = nil
+
+-- GUI
+local gui = Instance.new("ScreenGui")
+gui.Name = "AutoEquipGui"
+gui.ResetOnSpawn = false
+gui.Parent = player:WaitForChild("PlayerGui")
+
+-- Main panel
+local panel = Instance.new("Frame")
+panel.Size = UDim2.fromOffset(240, 300)
+panel.Position = UDim2.new(0, 15, 1, -15)
+panel.AnchorPoint = Vector2.new(0, 1)
+panel.BackgroundColor3 = Color3.fromRGB(30, 32, 40)
+panel.Parent = gui
+
+Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 10)
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -20, 0, 35)
+title.Position = UDim2.fromOffset(10, 5)
+title.BackgroundTransparency = 1
+title.Text = "Auto Equip Inventory"
+title.TextColor3 = Color3.new(1, 1, 1)
+title.TextSize = 17
+title.Font = Enum.Font.GothamBold
+title.Parent = panel
+
+-- Inventory list
+local list = Instance.new("ScrollingFrame")
+list.Size = UDim2.new(1, -20, 0, 165)
+list.Position = UDim2.fromOffset(10, 45)
+list.BackgroundColor3 = Color3.fromRGB(43, 46, 56)
+list.BorderSizePixel = 0
+list.ScrollBarThickness = 5
+list.CanvasSize = UDim2.new()
+list.AutomaticCanvasSize = Enum.AutomaticSize.Y
+list.Parent = panel
+
+local layout = Instance.new("UIListLayout")
+layout.Padding = UDim.new(0, 5)
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+layout.Parent = list
+
+local function getTools()
+    local tools = {}
+    local backpack = player:FindFirstChildOfClass("Backpack")
+    local character = player.Character
+
+    if backpack then
+        for _, obj in ipairs(backpack:GetChildren()) do
+            if obj:IsA("Tool") then
+                table.insert(tools, obj)
+            end
+        end
+    end
+
+    if character then
+        for _, obj in ipairs(character:GetChildren()) do
+            if obj:IsA("Tool") then
+                table.insert(tools, obj)
+            end
+        end
+    end
+
+    table.sort(tools, function(a, b)
+        return a.Name:lower() < b.Name:lower()
+    end)
+
+    return tools
+end
+
+local function equipSelectedTool()
+    if not autoEquip or not selectedToolName then
+        return
+    end
+
+    local character = player.Character
+    local backpack = player:FindFirstChildOfClass("Backpack")
+    if not character or not backpack then return end
+
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid or humanoid.Health <= 0 then return end
+
+    local equipped = character:FindFirstChildOfClass("Tool")
+    if equipped and equipped.Name == selectedToolName then
+        return
+    end
+
+    local tool = backpack:FindFirstChild(selectedToolName)
+    if tool and tool:IsA("Tool") then
+        humanoid:EquipTool(tool)
+    end
+end
+
+local function refreshInventory()
+    for _, child in ipairs(list:GetChildren()) do
+        if child:IsA("TextButton") then
+            child:Destroy()
+        end
+    end
+
+    local tools = getTools()
+
+    for index, tool in ipairs(tools) do
+        local toolName = tool.Name
+        local itemButton = Instance.new("TextButton")
+        itemButton.Name = "ToolOption"
+        itemButton.Size = UDim2.new(1, -10, 0, 32)
+        itemButton.BackgroundColor3 =
+            toolName == selectedToolName
+            and Color3.fromRGB(45, 145, 85)
+            or Color3.fromRGB(62, 66, 78)
+        itemButton.TextColor3 = Color3.new(1, 1, 1)
+        itemButton.TextSize = 14
+        itemButton.Font = Enum.Font.Gotham
+        itemButton.Text = toolName
+        itemButton.LayoutOrder = index
+        itemButton.Parent = list
+
+        Instance.new("UICorner", itemButton).CornerRadius =
+            UDim.new(0, 6)
+
+        itemButton.Activated:Connect(function()
+            selectedToolName = toolName
+            refreshInventory()
+            equipSelectedTool()
+        end)
+    end
+
+    if #tools == 0 then
+        local empty = Instance.new("TextLabel")
+        empty.Size = UDim2.new(1, -10, 0, 32)
+        empty.BackgroundTransparency = 1
+        empty.Text = "No Tools found"
+        empty.TextColor3 = Color3.fromRGB(200, 200, 200)
+        empty.Parent = list
+    end
+end
+
+-- Refresh button
+local refreshButton = Instance.new("TextButton")
+refreshButton.Size = UDim2.new(0.48, 0, 0, 35)
+refreshButton.Position = UDim2.new(0.02, 0, 1, -45)
+refreshButton.BackgroundColor3 = Color3.fromRGB(65, 110, 190)
+refreshButton.Text = "Refresh"
+refreshButton.TextColor3 = Color3.new(1, 1, 1)
+refreshButton.TextSize = 14
+refreshButton.Font = Enum.Font.GothamBold
+refreshButton.Parent = panel
+
+Instance.new("UICorner", refreshButton).CornerRadius =
+    UDim.new(0, 7)
+
+refreshButton.Activated:Connect(function()
+    refreshInventory()
+    equipSelectedTool()
+end)
+
+-- Auto-equip toggle
+local toggleButton = Instance.new("TextButton")
+toggleButton.Size = UDim2.new(0.48, 0, 0, 35)
+toggleButton.Position = UDim2.new(0.50, 0, 1, -45)
+toggleButton.BackgroundColor3 = Color3.fromRGB(170, 55, 55)
+toggleButton.Text = "Auto: OFF"
+toggleButton.TextColor3 = Color3.new(1, 1, 1)
+toggleButton.TextSize = 14
+toggleButton.Font = Enum.Font.GothamBold
+toggleButton.Parent = panel
+
+Instance.new("UICorner", toggleButton).CornerRadius =
+    UDim.new(0, 7)
+
+toggleButton.Activated:Connect(function()
+    autoEquip = not autoEquip
+
+    toggleButton.Text = autoEquip and "Auto: ON" or "Auto: OFF"
+    toggleButton.BackgroundColor3 = autoEquip
+        and Color3.fromRGB(40, 170, 85)
+        or Color3.fromRGB(170, 55, 55)
+
+    equipSelectedTool()
+end)
+
+-- Recheck while enabled
+task.spawn(function()
+    while gui.Parent do
+        task.wait(0.5)
+        equipSelectedTool()
+    end
+end)
+
+player.CharacterAdded:Connect(function()
+    task.wait(1)
+    refreshInventory()
+    equipSelectedTool()
+end)
+
+local backpack = player:WaitForChild("Backpack")
+backpack.ChildAdded:Connect(function()
+    task.wait(0.1)
+    refreshInventory()
+    equipSelectedTool()
+end)
+
+backpack.ChildRemoved:Connect(function()
+    task.wait(0.1)
+    refreshInventory()
+end)
+
+refreshInventory()
+
     end
 end)
