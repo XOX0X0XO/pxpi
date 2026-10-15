@@ -212,6 +212,20 @@ task.spawn(function()
 			local target = getMeteoriteCFrame(root.Position)
 			if target and (root.Position - target.Position).Magnitude > METEORITE_NEAR_RANGE then
 				char:PivotTo(target + METEORITE_OFFSET)
+
+                           local player = game:GetService("Players").LocalPlayer
+
+                        local function startSkillTimer()
+	               task.delay(30, function()
+		local char = player.Character
+		local combat = char and char:FindFirstChild("Combat")
+		local skill = combat and combat:FindFirstChild("Skill")
+		local ev = skill and skill:FindFirstChild("SkillEvent")
+		if ev then
+			ev:FireServer("Z")
+		end
+	end)
+end
 			end
 		end
 	end
