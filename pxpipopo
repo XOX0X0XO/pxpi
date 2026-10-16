@@ -20,6 +20,10 @@ local METEORITE_OFFSET = Vector3.new(0, 5, 5)
 local METEORITE_INDEXES = {15, 16}
 local METEORITE_NAMES = {"Meteorite"}
 
+-- Skill delays
+local DUNGEON_SKILL_DELAY = 30
+local METEORITE_SKILL_DELAY = 5
+
 local ON_COLOR = Color3.fromRGB(60, 170, 80)
 local OFF_COLOR = Color3.fromRGB(200, 60, 50)
 
@@ -62,7 +66,7 @@ local function getMeteoriteCFrame(fromPosition)
     local children = eventFolder:GetChildren()
     local found = {}
 
-    for _, name in METEORITE_NAMES do
+    for _, name in ipairs(METEORITE_NAMES) do
         local cf = pivotOf(eventFolder:FindFirstChild(name))
 
         if cf then
@@ -70,7 +74,7 @@ local function getMeteoriteCFrame(fromPosition)
         end
     end
 
-    for _, index in METEORITE_INDEXES do
+    for _, index in ipairs(METEORITE_INDEXES) do
         local cf = pivotOf(children[index])
 
         if cf then
@@ -80,7 +84,7 @@ local function getMeteoriteCFrame(fromPosition)
 
     local best, bestDist = nil, math.huge
 
-    for _, cf in found do
+    for _, cf in ipairs(found) do
         local d = (cf.Position - fromPosition).Magnitude
 
         if d < bestDist then
@@ -112,7 +116,7 @@ local function getNearestDoor(fromPosition)
 
     local best, bestDist = nil, math.huge
 
-    for _, child in bossFolder:GetChildren() do
+    for _, child in ipairs(bossFolder:GetChildren()) do
         local door = child:FindFirstChild("PartDoor")
 
         if door and door:IsA("BasePart") then
@@ -128,7 +132,7 @@ local function getNearestDoor(fromPosition)
     return best
 end
 
--- Run dungeon and activate F once after teleport
+-- Run dungeon and activate F once after 30 seconds
 local function runDungeon(char, root)
     local door = getNearestDoor(root.Position)
 
@@ -157,8 +161,8 @@ local function runDungeon(char, root)
     -- 3. Teleport to dungeon destination
     char:PivotTo(DUNGEON_DESTINATION)
 
-    -- 4. Wait, then activate F once
-    task.wait(1)
+    -- 4. Wait 30 seconds after teleport, then activate F once
+    task.wait(DUNGEON_SKILL_DELAY)
     activateSkill("F")
 end
 
@@ -169,8 +173,8 @@ gui.ResetOnSpawn = false
 gui.Parent = player:WaitForChild("PlayerGui")
 
 local openButton = Instance.new("TextButton")
-openButton.AnchorPoint = Vector2.new(0, 1)
-openButton.Position = UDim2.new(0, 15, 1, -15)
+openButton.AnchorPoint = Vector2.new(0, 0.5)
+openButton.Position = UDim2.new(0, 15, 0.5, 0)
 openButton.Size = UDim2.fromOffset(160, 50)
 openButton.Text = "Auto Menu"
 openButton.TextSize = 18
@@ -244,7 +248,7 @@ local function makeToggle(feature, label, yOffset)
         label = label
     }
 
-    b.MouseButton1Click:Connect(function()
+    b.Activated:Connect(function()
         state[feature] = not state[feature]
         refresh(feature)
     end)
@@ -255,11 +259,11 @@ end
 makeToggle("meteorite", "Auto Meteorite", 80)
 makeToggle("dungeon", "Auto Dungeon", 180)
 
-openButton.MouseButton1Click:Connect(function()
+openButton.Activated:Connect(function()
     frame.Visible = not frame.Visible
 end)
 
-closeButton.MouseButton1Click:Connect(function()
+closeButton.Activated:Connect(function()
     frame.Visible = false
 end)
 
@@ -316,11 +320,13 @@ task.spawn(function()
                 -- 1. Teleport to meteorite
                 char:PivotTo(target + METEORITE_OFFSET)
 
-                -- 2. Wait, then activate C once
-                task.wait(1)
+                -- 2. Wait 5 seconds, then activate C once
+                task.wait(METEORITE_SKILL_DELAY)
                 activateSkill("C")
             end
         end
+    end
+end)
 
 
 
@@ -340,8 +346,8 @@ gui.Parent = player:WaitForChild("PlayerGui")
 -- Main panel
 local panel = Instance.new("Frame")
 panel.Size = UDim2.fromOffset(240, 300)
-panel.Position = UDim2.new(0, 15, 1, -15)
-panel.AnchorPoint = Vector2.new(0, 1)
+panel.Position = UDim2.new(0, 15, 0.5, 0)
+panel.AnchorPoint = Vector2.new(0, 0.5)
 panel.BackgroundColor3 = Color3.fromRGB(30, 32, 40)
 panel.Parent = gui
 
@@ -540,6 +546,3 @@ backpack.ChildRemoved:Connect(function()
 end)
 
 refreshInventory()
-
-    end
-end)
