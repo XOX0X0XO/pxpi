@@ -1,10 +1,10 @@
 
--- LocalScript in StarterPlayerScripts
+-- LocalScript in StarterPlayer > StarterPlayerScripts
 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 
--- Settings
+-- SETTINGS
 local DUNGEON_DESTINATION = CFrame.new(
     2465.39526, 2461.83154, -668.35083,
     0.645107985, 0.241587579, -0.724893808,
@@ -20,83 +20,73 @@ local METEORITE_OFFSET = Vector3.new(0, 5, 5)
 local METEORITE_INDEXES = {15, 16}
 local METEORITE_NAMES = {"Meteorite"}
 
--- Skill delays
 local DUNGEON_SKILL_DELAY = 30
 local METEORITE_SKILL_DELAY = 5
 
-local ON_COLOR = Color3.fromRGB(60, 170, 80)
-local OFF_COLOR = Color3.fromRGB(200, 60, 50)
+local ON_COLOR = Color3.fromRGB(45, 155, 85)
+local OFF_COLOR = Color3.fromRGB(170, 60, 55)
 
 local state = {
-    meteorite = false,
-    dungeon = false
+    Dungeon = false,
+    Meteorite = false,
+    Equip = false
 }
 
+local selectedTool = nil
 local busy = false
 
--- Activate a skill once
+-- SKILL ACTIVATION
 local function activateSkill(key)
     local char = player.Character
     local sukuna = char and char:FindFirstChild("Sukuna")
     local skill = sukuna and sukuna:FindFirstChild("Skill")
     local ev = skill and skill:FindFirstChild("SkillEvent")
 
+
     if ev and ev:IsA("RemoteEvent") then
         ev:FireServer(key)
     end
 end
 
--- Meteorite helpers
+-- METEORITE HELPERS
 local function pivotOf(inst)
     if inst and inst:IsA("PVInstance") then
         return inst:GetPivot()
     end
-
     return nil
 end
 
 local function getMeteoriteCFrame(fromPosition)
     local mod = workspace:FindFirstChild("Mod")
-    local eventFolder = mod and mod:FindFirstChild("MeteoriteEvent")
+    local folder = mod and mod:FindFirstChild("MeteoriteEvent")
+    if not folder then return nil end
 
-    if not eventFolder then
-        return nil
-    end
-
-    local children = eventFolder:GetChildren()
+    local children = folder:GetChildren()
     local found = {}
 
     for _, name in ipairs(METEORITE_NAMES) do
-        local cf = pivotOf(eventFolder:FindFirstChild(name))
-
-        if cf then
-            table.insert(found, cf)
-        end
+        local cf = pivotOf(folder:FindFirstChild(name))
+        if cf then table.insert(found, cf) end
     end
 
     for _, index in ipairs(METEORITE_INDEXES) do
         local cf = pivotOf(children[index])
-
-        if cf then
-            table.insert(found, cf)
-        end
+        if cf then table.insert(found, cf) end
     end
 
     local best, bestDist = nil, math.huge
 
     for _, cf in ipairs(found) do
-        local d = (cf.Position - fromPosition).Magnitude
-
-        if d < bestDist then
+        local dist = (cf.Position - fromPosition).Magnitude
+        if dist < bestDist then
             best = cf
-            bestDist = d
+            bestDist = dist
         end
     end
 
     return best
 end
 
--- Pause Auto Meteorite while the dungeon island exists
 local function islandActive()
     local map = workspace:FindFirstChild("Map")
     local bossMap = map and map:FindFirstChild("DungeonBoss_MAP")
@@ -105,26 +95,22 @@ local function islandActive()
         and bossMap:FindFirstChild("Island_Start") ~= nil
 end
 
--- Find nearest dungeon door
+-- DUNGEON DOOR
 local function getNearestDoor(fromPosition)
     local map = workspace:FindFirstChild("Map")
-    local bossFolder = map and map:FindFirstChild("DungeonDoorBoss")
-
-    if not bossFolder then
-        return nil
-    end
+    local folder = map and map:FindFirstChild("DungeonDoorBoss")
+    if not folder then return nil end
 
     local best, bestDist = nil, math.huge
 
-    for _, child in ipairs(bossFolder:GetChildren()) do
+    for _, child in ipairs(folder:GetChildren()) do
         local door = child:FindFirstChild("PartDoor")
 
         if door and door:IsA("BasePart") then
-            local d = (door.Position - fromPosition).Magnitude
-
-            if d < bestDist then
+            local dist = (door.Position - fromPosition).Magnitude
+            if dist < bestDist then
                 best = door
-                bestDist = d
+                bestDist = dist
             end
         end
     end
@@ -132,22 +118,17 @@ local function getNearestDoor(fromPosition)
     return best
 end
 
--- Run dungeon and activate F once after 30 seconds
 local function runDungeon(char, root)
     local door = getNearestDoor(root.Position)
+    if not door then return end
 
-    if not door then
-        return
-    end
-
-    -- 1. Teleport to the door
+    -- Teleport to door
     char:PivotTo(door.CFrame + DOOR_OFFSET)
     task.wait(0.5)
 
-    -- 2. Activate proximity prompt
+    -- Activate door prompt
     local prompt = door:FindFirstChildWhichIsA(
-        "ProximityPrompt",
-        true
+        "ProximityPrompt", true
     )
 
     if prompt and prompt.Enabled then
@@ -158,137 +139,305 @@ local function runDungeon(char, root)
 
     task.wait(0.5)
 
-    -- 3. Teleport to dungeon destination
+    -- Teleport to dungeon destination
     char:PivotTo(DUNGEON_DESTINATION)
 
-    -- 4. Wait 30 seconds after teleport, then activate F once
+    -- Wait 30 seconds, then activate F
     task.wait(DUNGEON_SKILL_DELAY)
     activateSkill("F")
 end
 
+-- AUTO EQUIP
+local function equipSelectedTool()
+    if not state.Equip or not selectedTool then return end
+
+    local char = player.Character
+    local backpack = player:FindFirstChildOfClass("Backpack")
+    local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+
+    if not char or not backpack or not humanoid
+        or humanoid.Health <= 0 then
+        return
+    end
+
+    if not selectedTool.Parent then
+        selectedTool = nil
+        return
+    end
+
+    if selectedTool.Parent == char then return end
+
+    if selectedTool.Parent == backpack then
+        humanoid:EquipTool(selectedTool)
+    end
+end
+
 -- GUI
 local gui = Instance.new("ScreenGui")
-gui.Name = "AutoMenuGui"
+gui.Name = "AutoFeaturesGui"
 gui.ResetOnSpawn = false
 gui.Parent = player:WaitForChild("PlayerGui")
 
 local openButton = Instance.new("TextButton")
-openButton.AnchorPoint = Vector2.new(0, 0.5)
+openButton.Size = UDim2.fromOffset(130, 42)
 openButton.Position = UDim2.new(0, 15, 0.5, 0)
-openButton.Size = UDim2.fromOffset(160, 50)
+openButton.AnchorPoint = Vector2.new(0, 0.5)
 openButton.Text = "Auto Menu"
-openButton.TextSize = 18
-openButton.Font = Enum.Font.GothamBold
 openButton.TextColor3 = Color3.new(1, 1, 1)
-openButton.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+openButton.BackgroundColor3 = Color3.fromRGB(40, 45, 65)
+openButton.Font = Enum.Font.GothamBold
+openButton.TextSize = 16
 openButton.Parent = gui
 
 Instance.new("UICorner", openButton).CornerRadius =
     UDim.new(0, 8)
 
 local frame = Instance.new("Frame")
-frame.AnchorPoint = Vector2.new(0.5, 0.5)
-frame.Position = UDim2.fromScale(0.5, 0.5)
-frame.Size = UDim2.fromOffset(460, 320)
-frame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+frame.Size = UDim2.fromOffset(320, 440)
+frame.Position = UDim2.new(0, 155, 0.5, 0)
+frame.AnchorPoint = Vector2.new(0, 0.5)
+frame.BackgroundColor3 = Color3.fromRGB(25, 28, 40)
 frame.Visible = false
 frame.Parent = gui
 
 Instance.new("UICorner", frame).CornerRadius =
-    UDim.new(0, 14)
+    UDim.new(0, 12)
 
 local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, 0, 0, 60)
+title.Size = UDim2.new(1, -55, 0, 45)
+title.Position = UDim2.fromOffset(12, 5)
 title.BackgroundTransparency = 1
-title.Text = "Auto Features"
-title.TextSize = 28
-title.Font = Enum.Font.GothamBold
+title.Text = "AUTO FEATURES"
 title.TextColor3 = Color3.new(1, 1, 1)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 21
+title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = frame
 
-local closeButton = Instance.new("TextButton")
-closeButton.AnchorPoint = Vector2.new(1, 0)
-closeButton.Position = UDim2.new(1, -12, 0, 12)
-closeButton.Size = UDim2.fromOffset(36, 36)
-closeButton.Text = "X"
-closeButton.TextSize = 18
-closeButton.Font = Enum.Font.GothamBold
-closeButton.TextColor3 = Color3.new(1, 1, 1)
-closeButton.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
-closeButton.Parent = frame
+local close = Instance.new("TextButton")
+close.Size = UDim2.fromOffset(32, 32)
+close.Position = UDim2.new(1, -40, 0, 10)
+close.Text = "X"
+close.TextColor3 = Color3.new(1, 1, 1)
+close.BackgroundColor3 = OFF_COLOR
+close.Font = Enum.Font.GothamBold
+close.Parent = frame
 
-Instance.new("UICorner", closeButton).CornerRadius =
+Instance.new("UICorner", close).CornerRadius =
     UDim.new(0, 8)
 
-local toggles = {}
+local function makeToggle(name, label, y)
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(1, -24, 0, 45)
+    button.Position = UDim2.fromOffset(12, y)
+    button.TextColor3 = Color3.new(1, 1, 1)
+    button.Font = Enum.Font.GothamBold
+    button.TextSize = 16
+    button.Parent = frame
 
-local function refresh(feature)
-    local t = toggles[feature]
-    local on = state[feature]
+    Instance.new("UICorner", button).CornerRadius =
+        UDim.new(0, 8)
 
-    t.button.Text = t.label .. ": " .. (on and "ON" or "OFF")
-    t.button.BackgroundColor3 = on and ON_COLOR or OFF_COLOR
-end
+    local function update()
+        button.Text = label .. ": " ..
+            (state[name] and "ON" or "OFF")
+        button.BackgroundColor3 =
+            state[name] and ON_COLOR or OFF_COLOR
+    end
 
-local function makeToggle(feature, label, yOffset)
-    local b = Instance.new("TextButton")
-    b.AnchorPoint = Vector2.new(0.5, 0)
-    b.Position = UDim2.new(0.5, 0, 0, yOffset)
-    b.Size = UDim2.new(0.85, 0, 0, 80)
-    b.TextSize = 24
-    b.Font = Enum.Font.GothamBold
-    b.TextColor3 = Color3.new(1, 1, 1)
-    b.Parent = frame
-
-    Instance.new("UICorner", b).CornerRadius =
-        UDim.new(0, 12)
-
-    toggles[feature] = {
-        button = b,
-        label = label
-    }
-
-    b.Activated:Connect(function()
-        state[feature] = not state[feature]
-        refresh(feature)
+    button.Activated:Connect(function()
+        state[name] = not state[name]
+        update()
+        equipSelectedTool()
     end)
 
-    refresh(feature)
+    update()
 end
 
-makeToggle("meteorite", "Auto Meteorite", 80)
-makeToggle("dungeon", "Auto Dungeon", 180)
+makeToggle("Dungeon", "Auto Dungeon", 58)
+makeToggle("Meteorite", "Auto Meteorite", 111)
+makeToggle("Equip", "Auto Equip", 164)
+
+local inventoryTitle = Instance.new("TextLabel")
+inventoryTitle.Size = UDim2.new(1, -24, 0, 25)
+inventoryTitle.Position = UDim2.fromOffset(12, 218)
+inventoryTitle.BackgroundTransparency = 1
+inventoryTitle.Text = "Choose a Tool"
+inventoryTitle.TextColor3 = Color3.new(1, 1, 1)
+inventoryTitle.Font = Enum.Font.GothamBold
+inventoryTitle.TextSize = 15
+inventoryTitle.TextXAlignment = Enum.TextXAlignment.Left
+inventoryTitle.Parent = frame
+
+local toolList = Instance.new("ScrollingFrame")
+toolList.Size = UDim2.new(1, -24, 0, 115)
+toolList.Position = UDim2.fromOffset(12, 246)
+toolList.BackgroundColor3 = Color3.fromRGB(38, 42, 56)
+toolList.BorderSizePixel = 0
+toolList.ScrollBarThickness = 5
+toolList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+toolList.CanvasSize = UDim2.new()
+toolList.Parent = frame
+
+Instance.new("UICorner", toolList).CornerRadius =
+    UDim.new(0, 8)
+
+local layout = Instance.new("UIListLayout")
+layout.Padding = UDim.new(0, 4)
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+layout.Parent = toolList
+
+local function refreshInventory()
+    for _, child in ipairs(toolList:GetChildren()) do
+        if child:IsA("TextButton") or child:IsA("TextLabel") then
+            child:Destroy()
+        end
+    end
+
+    local tools = {}
+    local backpack = player:FindFirstChildOfClass("Backpack")
+    local char = player.Character
+
+    if backpack then
+        for _, obj in ipairs(backpack:GetChildren()) do
+            if obj:IsA("Tool") then table.insert(tools, obj) end
+        end
+    end
+
+    if char then
+        for _, obj in ipairs(char:GetChildren()) do
+            if obj:IsA("Tool") then table.insert(tools, obj) end
+        end
+    end
+
+    table.sort(tools, function(a, b)
+        return a.Name:lower() < b.Name:lower()
+    end)
+
+    if #tools == 0 then
+        local empty = Instance.new("TextLabel")
+        empty.Size = UDim2.new(1, -8, 0, 30)
+        empty.BackgroundTransparency = 1
+        empty.Text = "No Tools found"
+        empty.TextColor3 = Color3.fromRGB(190, 190, 200)
+        empty.Parent = toolList
+        return
+    end
+
+    for index, tool in ipairs(tools) do
+        local itemButton = Instance.new("TextButton")
+        itemButton.Size = UDim2.new(1, -8, 0, 30)
+        itemButton.LayoutOrder = index
+        itemButton.Text = tool.Name ..
+            (selectedTool == tool and "  [SELECTED]" or "")
+        itemButton.BackgroundColor3 =
+            selectedTool == tool
+            and ON_COLOR
+            or Color3.fromRGB(60, 65, 80)
+        itemButton.TextColor3 = Color3.new(1, 1, 1)
+        itemButton.TextSize = 14
+        itemButton.Font = Enum.Font.Gotham
+        itemButton.Parent = toolList
+
+        itemButton.Activated:Connect(function()
+            selectedTool = tool
+            refreshInventory()
+            equipSelectedTool()
+        end)
+    end
+end
+
+local refreshButton = Instance.new("TextButton")
+refreshButton.Size = UDim2.new(1, -24, 0, 35)
+refreshButton.Position = UDim2.fromOffset(12, 370)
+refreshButton.BackgroundColor3 = Color3.fromRGB(65, 105, 180)
+refreshButton.Text = "Refresh Inventory"
+refreshButton.TextColor3 = Color3.new(1, 1, 1)
+refreshButton.Font = Enum.Font.GothamBold
+refreshButton.TextSize = 14
+refreshButton.Parent = frame
+
+Instance.new("UICorner", refreshButton).CornerRadius =
+    UDim.new(0, 8)
+
+refreshButton.Activated:Connect(refreshInventory)
 
 openButton.Activated:Connect(function()
     frame.Visible = not frame.Visible
+    openButton.Visible = not frame.Visible
 end)
 
-closeButton.Activated:Connect(function()
+close.Activated:Connect(function()
     frame.Visible = false
+    openButton.Visible = true
 end)
 
--- Main auto loop
--- Dungeon runs first when ON and a door exists.
--- Meteorite pauses while the dungeon island exists.
+-- AUTO EQUIP CHECKS
+task.spawn(function()
+    while gui.Parent do
+        task.wait(0.5)
+        equipSelectedTool()
+    end
+end)
+
+local function watchBackpack(backpack)
+    backpack.ChildAdded:Connect(function()
+        task.wait(0.1)
+        refreshInventory()
+        equipSelectedTool()
+    end)
+
+    backpack.ChildRemoved:Connect(function()
+        task.wait(0.1)
+        refreshInventory()
+    end)
+end
+
+watchBackpack(player:WaitForChild("Backpack"))
+
+player.ChildAdded:Connect(function(child)
+    if child:IsA("Backpack") then
+        watchBackpack(child)
+        task.wait(0.2)
+        refreshInventory()
+    end
+end)
+
+player.CharacterAdded:Connect(function(char)
+    char.ChildAdded:Connect(function()
+        task.wait(0.1)
+        refreshInventory()
+        equipSelectedTool()
+    end)
+
+    char.ChildRemoved:Connect(function()
+        task.wait(0.1)
+        refreshInventory()
+    end)
+
+    task.wait(1)
+    refreshInventory()
+    equipSelectedTool()
+end)
+
+if player.Character then
+    player.Character.ChildAdded:Connect(refreshInventory)
+    player.Character.ChildRemoved:Connect(refreshInventory)
+end
+
+-- MAIN AUTO LOOP
 task.spawn(function()
     while true do
         task.wait(CHECK_INTERVAL)
 
-        if busy then
-            continue
-        end
+        if busy then continue end
 
         local char = player.Character
-        local root = char and char:FindFirstChild(
-            "HumanoidRootPart"
-        )
-
-        if not root then
-            continue
-        end
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if not root then continue end
 
         local dungeonActive =
-            state.dungeon
+            state.Dungeon
             and getNearestDoor(root.Position) ~= nil
 
         if dungeonActive then
@@ -310,239 +459,21 @@ task.spawn(function()
                 busy = false
             end
 
-        elseif state.meteorite and not islandActive() then
+        elseif state.Meteorite and not islandActive() then
             local target = getMeteoriteCFrame(root.Position)
 
             if target
                 and (root.Position - target.Position).Magnitude
                     > METEORITE_NEAR_RANGE then
 
-                -- 1. Teleport to meteorite
                 char:PivotTo(target + METEORITE_OFFSET)
 
-                -- 2. Wait 5 seconds, then activate C once
+                -- Wait 5 seconds, then activate C
                 task.wait(METEORITE_SKILL_DELAY)
                 activateSkill("C")
             end
         end
     end
-end)
-
-
-
-
-local Players = game:GetService("Players")
-
-local player = Players.LocalPlayer
-local autoEquip = false
-local selectedToolName = nil
-
--- GUI
-local gui = Instance.new("ScreenGui")
-gui.Name = "AutoEquipGui"
-gui.ResetOnSpawn = false
-gui.Parent = player:WaitForChild("PlayerGui")
-
--- Main panel
-local panel = Instance.new("Frame")
-panel.Size = UDim2.fromOffset(240, 300)
-panel.Position = UDim2.new(0, 15, 0.5, 0)
-panel.AnchorPoint = Vector2.new(0, 0.5)
-panel.BackgroundColor3 = Color3.fromRGB(30, 32, 40)
-panel.Parent = gui
-
-Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 10)
-
-local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, -20, 0, 35)
-title.Position = UDim2.fromOffset(10, 5)
-title.BackgroundTransparency = 1
-title.Text = "Auto Equip Inventory"
-title.TextColor3 = Color3.new(1, 1, 1)
-title.TextSize = 17
-title.Font = Enum.Font.GothamBold
-title.Parent = panel
-
--- Inventory list
-local list = Instance.new("ScrollingFrame")
-list.Size = UDim2.new(1, -20, 0, 165)
-list.Position = UDim2.fromOffset(10, 45)
-list.BackgroundColor3 = Color3.fromRGB(43, 46, 56)
-list.BorderSizePixel = 0
-list.ScrollBarThickness = 5
-list.CanvasSize = UDim2.new()
-list.AutomaticCanvasSize = Enum.AutomaticSize.Y
-list.Parent = panel
-
-local layout = Instance.new("UIListLayout")
-layout.Padding = UDim.new(0, 5)
-layout.SortOrder = Enum.SortOrder.LayoutOrder
-layout.Parent = list
-
-local function getTools()
-    local tools = {}
-    local backpack = player:FindFirstChildOfClass("Backpack")
-    local character = player.Character
-
-    if backpack then
-        for _, obj in ipairs(backpack:GetChildren()) do
-            if obj:IsA("Tool") then
-                table.insert(tools, obj)
-            end
-        end
-    end
-
-    if character then
-        for _, obj in ipairs(character:GetChildren()) do
-            if obj:IsA("Tool") then
-                table.insert(tools, obj)
-            end
-        end
-    end
-
-    table.sort(tools, function(a, b)
-        return a.Name:lower() < b.Name:lower()
-    end)
-
-    return tools
-end
-
-local function equipSelectedTool()
-    if not autoEquip or not selectedToolName then
-        return
-    end
-
-    local character = player.Character
-    local backpack = player:FindFirstChildOfClass("Backpack")
-    if not character or not backpack then return end
-
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if not humanoid or humanoid.Health <= 0 then return end
-
-    local equipped = character:FindFirstChildOfClass("Tool")
-    if equipped and equipped.Name == selectedToolName then
-        return
-    end
-
-    local tool = backpack:FindFirstChild(selectedToolName)
-    if tool and tool:IsA("Tool") then
-        humanoid:EquipTool(tool)
-    end
-end
-
-local function refreshInventory()
-    for _, child in ipairs(list:GetChildren()) do
-        if child:IsA("TextButton") then
-            child:Destroy()
-        end
-    end
-
-    local tools = getTools()
-
-    for index, tool in ipairs(tools) do
-        local toolName = tool.Name
-        local itemButton = Instance.new("TextButton")
-        itemButton.Name = "ToolOption"
-        itemButton.Size = UDim2.new(1, -10, 0, 32)
-        itemButton.BackgroundColor3 =
-            toolName == selectedToolName
-            and Color3.fromRGB(45, 145, 85)
-            or Color3.fromRGB(62, 66, 78)
-        itemButton.TextColor3 = Color3.new(1, 1, 1)
-        itemButton.TextSize = 14
-        itemButton.Font = Enum.Font.Gotham
-        itemButton.Text = toolName
-        itemButton.LayoutOrder = index
-        itemButton.Parent = list
-
-        Instance.new("UICorner", itemButton).CornerRadius =
-            UDim.new(0, 6)
-
-        itemButton.Activated:Connect(function()
-            selectedToolName = toolName
-            refreshInventory()
-            equipSelectedTool()
-        end)
-    end
-
-    if #tools == 0 then
-        local empty = Instance.new("TextLabel")
-        empty.Size = UDim2.new(1, -10, 0, 32)
-        empty.BackgroundTransparency = 1
-        empty.Text = "No Tools found"
-        empty.TextColor3 = Color3.fromRGB(200, 200, 200)
-        empty.Parent = list
-    end
-end
-
--- Refresh button
-local refreshButton = Instance.new("TextButton")
-refreshButton.Size = UDim2.new(0.48, 0, 0, 35)
-refreshButton.Position = UDim2.new(0.02, 0, 1, -45)
-refreshButton.BackgroundColor3 = Color3.fromRGB(65, 110, 190)
-refreshButton.Text = "Refresh"
-refreshButton.TextColor3 = Color3.new(1, 1, 1)
-refreshButton.TextSize = 14
-refreshButton.Font = Enum.Font.GothamBold
-refreshButton.Parent = panel
-
-Instance.new("UICorner", refreshButton).CornerRadius =
-    UDim.new(0, 7)
-
-refreshButton.Activated:Connect(function()
-    refreshInventory()
-    equipSelectedTool()
-end)
-
--- Auto-equip toggle
-local toggleButton = Instance.new("TextButton")
-toggleButton.Size = UDim2.new(0.48, 0, 0, 35)
-toggleButton.Position = UDim2.new(0.50, 0, 1, -45)
-toggleButton.BackgroundColor3 = Color3.fromRGB(170, 55, 55)
-toggleButton.Text = "Auto: OFF"
-toggleButton.TextColor3 = Color3.new(1, 1, 1)
-toggleButton.TextSize = 14
-toggleButton.Font = Enum.Font.GothamBold
-toggleButton.Parent = panel
-
-Instance.new("UICorner", toggleButton).CornerRadius =
-    UDim.new(0, 7)
-
-toggleButton.Activated:Connect(function()
-    autoEquip = not autoEquip
-
-    toggleButton.Text = autoEquip and "Auto: ON" or "Auto: OFF"
-    toggleButton.BackgroundColor3 = autoEquip
-        and Color3.fromRGB(40, 170, 85)
-        or Color3.fromRGB(170, 55, 55)
-
-    equipSelectedTool()
-end)
-
--- Recheck while enabled
-task.spawn(function()
-    while gui.Parent do
-        task.wait(0.5)
-        equipSelectedTool()
-    end
-end)
-
-player.CharacterAdded:Connect(function()
-    task.wait(1)
-    refreshInventory()
-    equipSelectedTool()
-end)
-
-local backpack = player:WaitForChild("Backpack")
-backpack.ChildAdded:Connect(function()
-    task.wait(0.1)
-    refreshInventory()
-    equipSelectedTool()
-end)
-
-backpack.ChildRemoved:Connect(function()
-    task.wait(0.1)
-    refreshInventory()
 end)
 
 refreshInventory()
